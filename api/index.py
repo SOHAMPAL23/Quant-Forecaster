@@ -5,49 +5,52 @@ import pandas as pd
 from typing import Dict, List
 import requests
 from datetime import datetime, timezone
+import asyncio
 
 # Import the local model
-from model.data_fetcher import fetch_klines_sync, klines_to_arrays
+from model.data_fetcher import fetch_klines_async, klines_to_arrays, fetch_24h_stats
 from model.forecaster import BTCForecaster
 
 app = FastAPI()
 
+# Initialize the forecaster
+forecaster = BTCForecaster()
+
 @app.get("/favicon.ico")
 async def favicon():
-    # Return 204 No Content for favicon to stop 404 logs
     from fastapi import Response
     return Response(status_code=204)
 
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "timestamp": datetime.now(timezone.utc)}
-# Note: Calibration state won't persist across different lambdas easily 
-# without a DB, but it will work for the forecast.
-forecaster = BTCForecaster()
 
 @app.get("/api/price")
 async def get_price():
-    base = "https://api.binance.com"
+    """Fetch live BTC price and 24h stats using async fetcher."""
     try:
-        p_res = requests.get(f"{base}/api/v3/ticker/price?symbol=BTCUSDT", timeout=10).json()
-        s_res = requests.get(f"{base}/api/v3/ticker/24hr?symbol=BTCUSDT", timeout=10).json()
-        
+        # Use the async stats fetcher from data_fetcher.py
+        stats = await fetch_24h_stats()
         return {
-            "price": float(p_res["price"]),
-            "change_24h": float(s_res["priceChangePercent"]),
-            "high_24h": float(s_res["highPrice"]),
-            "low_24h": float(s_res["lowPrice"]),
-            "volume_24h": float(s_res["volume"])
+            "price": stats["last_price"],
+            "change_24h": stats["price_change_pct"],
+            "high_24h": stats["high_24h"],
+            "low_24h": stats["low_24h"],
+            "volume_24h": stats["volume_24h"]
         }
     except Exception as e:
-        return {"error": str(e)}
+        # Return structured error for debugging
+        return {"error": "Binance API unreachable", "detail": str(e)}
 
 @app.get("/api/forecast")
 async def get_forecast():
+    """Run model and return next hour forecast (Async)."""
     try:
-        klines = fetch_klines_sync(limit=900)
+        # Direct await to avoid loop-in-loop conflicts on Vercel
+        klines = await fetch_klines_async(limit=900)
         opens, highs, lows, closes = klines_to_arrays(klines)
         
+        # CPU bound task, but fast enough for serverless
         res = forecaster.predict(closes, highs, lows)
         
         return {
@@ -61,12 +64,13 @@ async def get_forecast():
             "last_close": float(closes[-1])
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Forecast Engine Error: {str(e)}")
 
 @app.get("/api/backtest")
 async def get_backtest():
+    """Run walk-forward backtest (Async)."""
     try:
-        klines = fetch_klines_sync(limit=900)
+        klines = await fetch_klines_async(limit=900)
         opens, highs, lows, closes = klines_to_arrays(klines)
         
         metrics = forecaster.backtest(closes, highs, lows, n_test=120, warmup=100)
@@ -79,12 +83,13 @@ async def get_backtest():
             "details": metrics.details[-50:] 
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Backtest Engine Error: {str(e)}")
 
 @app.get("/api/history")
 async def get_history():
+    """Fetch last 50 candles (Async)."""
     try:
-        klines = fetch_klines_sync(limit=50)
+        klines = await fetch_klines_async(limit=50)
         return klines
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Data Fetch Error: {str(e)}")
