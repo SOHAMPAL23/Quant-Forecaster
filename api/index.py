@@ -12,7 +12,15 @@ from model.forecaster import BTCForecaster
 
 app = FastAPI()
 
-# In serverless, we initialize the forecaster per request or globally.
+@app.get("/favicon.ico")
+async def favicon():
+    # Return 204 No Content for favicon to stop 404 logs
+    from fastapi import Response
+    return Response(status_code=204)
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc)}
 # Note: Calibration state won't persist across different lambdas easily 
 # without a DB, but it will work for the forecast.
 forecaster = BTCForecaster()
