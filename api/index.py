@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 import os
 import numpy as np
-import pandas as pd
+
 from typing import Dict, List
 import requests
 from datetime import datetime, timezone

@@ -7,7 +7,7 @@
 #  - Adaptive calibration (learned from backtest)
 
 import numpy as np
-import pandas as pd
+
 from scipy import stats
 from scipy.special import gammaln
 from dataclasses import dataclass, field
