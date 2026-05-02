@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BTC Quant Forecaster | Institutional Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-deep: #030509;
+            --bg-card: #0c1017;
+            --bg-border: rgba(255, 255, 255, 0.05);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-gold: #eab308;
+            --accent-purple: #8b5cf6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-color: var(--bg-deep); color: var(--text-main); font-family: 'Inter', sans-serif; overflow-x: hidden; }
+        .app-container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 1rem; border-bottom: 1px solid var(--bg-border); margin-bottom: 2rem; }
+        .logo-area { display: flex; align-items: center; gap: 1rem; }
+        .logo-area h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: 2px; }
+        .logo-area h1 span { color: var(--accent-gold); }
+        
+        .header-metrics { display: flex; gap: 2rem; }
+        .h-metric { display: flex; flex-direction: column; align-items: flex-end; }
+        .h-metric .label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+        .h-metric .value { font-family: 'JetBrains Mono'; font-size: 1.5rem; color: var(--accent-gold); }
+
+        .dashboard-grid { display: grid; grid-template-columns: 2.5fr 1fr; gap: 1.5rem; }
+        .card { background: var(--bg-card); border: 1px solid var(--bg-border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .card-header h3 { font-size: 0.9rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 1rem; }
+
+        .chart-wrapper { width: 100%; height: 350px; }
+        .chart-wrapper.mini { height: 200px; }
+
+        .regime-banner { width: 100%; padding: 0.75rem; border-radius: 8px; text-align: center; font-weight: 700; text-transform: uppercase; margin-bottom: 1rem; }
+        .regime-volatile { background: rgba(239, 68, 68, 0.1); color: var(--accent-red); }
+        .regime-medium { background: rgba(234, 179, 8, 0.1); color: var(--accent-gold); }
+        .regime-calm { background: rgba(16, 185, 129, 0.1); color: var(--accent-green); }
+
+        .params-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+        .param { background: rgba(255, 255, 255, 0.02); padding: 0.75rem; border-radius: 8px; }
+        .param .label { font-size: 0.65rem; color: var(--text-muted); display: block; }
+        .param .val { font-family: 'JetBrains Mono'; font-size: 0.85rem; }
+
+        .metric-row { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--bg-border); }
+        .metric-row .highlight { color: var(--accent-green); font-weight: 700; }
+
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-deep); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000; transition: opacity 0.5s; }
+        .spinner { width: 40px; height: 40px; border: 3px solid rgba(234, 179, 8, 0.1); border-top: 3px solid var(--accent-gold); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 1rem; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        @media (max-width: 1000px) { .dashboard-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div id="loader" class="overlay"><div class="spinner"></div><p>Calibrating Model...</p></div>
+
+    <div class="app-container">
+        <header>
+            <div class="logo-area"><h1>ALPHA<span>QUANT</span></h1></div>
+            <div class="header-metrics">
+                <div class="h-metric">
+                    <span class="label">BTC / USDT</span>
+                    <span id="live-price" class="value">---</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="dashboard-grid">
+            <div class="main-column">
+                <div class="card">
+                    <div class="card-header"><h3>Price Action & 95% Confidence Band</h3></div>
+                    <div class="chart-wrapper"><canvas id="priceChart"></canvas></div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h3>Walk-Forward Backtest</h3></div>
+                    <div class="chart-wrapper mini"><canvas id="backtestChart"></canvas></div>
+                </div>
+            </div>
+
+            <div class="side-column">
+                <div class="card">
+                    <div class="card-header"><h3>Intelligence</h3></div>
+                    <div id="regime" class="regime-banner">---</div>
+                    <div class="params-grid">
+                        <div class="param"><span class="label">Vol (σ)</span><span id="p-sigma" class="val">---</span></div>
+                        <div class="param"><span class="label">T-Dist (ν)</span><span id="p-df" class="val">---</span></div>
+                        <div class="param"><span class="label">Drift (μ)</span><span id="p-mu" class="val">---</span></div>
+                        <div class="param"><span class="label">Calibration</span><span id="p-calib" class="val">---</span></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h3>Metrics</h3></div>
+                    <div class="metric-row"><span>Coverage</span><span id="m-cov" class="highlight">---</span></div>
+                    <div class="metric-row"><span>Avg Width</span><span id="m-width">---</span></div>
+                    <div class="metric-row"><span>Winkler</span><span id="m-wink">---</span></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let priceChart, backtestChart;
+
+        async function init() {
+            await refreshAll();
+            document.getElementById('loader').style.opacity = '0';
+            setTimeout(() => document.getElementById('loader').style.display = 'none', 500);
+            setInterval(refreshPrice, 10000);
+            setInterval(refreshForecast, 60000);
+        }
+
+        async function refreshAll() {
+            await Promise.all([refreshPrice(), refreshForecast(), refreshBacktest()]);
+        }
+
+        async function refreshPrice() {
+            try {
+                const res = await fetch('/api/price');
+                const data = await res.json();
+                document.getElementById('live-price').innerText = `$${data.price.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+            } catch (e) {}
+        }
+
+        async function refreshForecast() {
+            try {
+                const [hRes, fRes] = await Promise.all([fetch('/api/history'), fetch('/api/forecast')]);
+                const history = await hRes.json();
+                const forecast = await fRes.json();
+                updatePriceChart(history, forecast);
+                updateParams(forecast);
+            } catch (e) {}
+        }
+
+        async function refreshBacktest() {
+            try {
+                const res = await fetch('/api/backtest');
+                const data = await res.json();
+                updateBacktestChart(data.details);
+                updateMetrics(data);
+            } catch (e) {}
+        }
+
+        function updatePriceChart(history, forecast) {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            const labels = history.map(k => new Date(k.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+            const prices = history.map(k => k.close);
+            labels.push('Forecast');
+
+            if (priceChart) priceChart.destroy();
+            priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Price', data: prices, borderColor: '#eab308', borderWidth: 2, pointRadius: 0, tension: 0.1 },
+                        { label: 'Upper', data: [...Array(prices.length-1).fill(null), prices[prices.length-1], forecast.upper], borderColor: '#8b5cf6', borderWidth: 1, borderDash: [5,5], pointRadius: 0 },
+                        { label: 'Lower', data: [...Array(prices.length-1).fill(null), prices[prices.length-1], forecast.lower], borderColor: '#06b6d4', borderWidth: 1, borderDash: [5,5], pointRadius: 0, fill: '-1', backgroundColor: 'rgba(139, 92, 246, 0.05)' }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { position: 'right', grid: { color: 'rgba(255,255,255,0.02)' } } }, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function updateBacktestChart(details) {
+            const ctx = document.getElementById('backtestChart').getContext('2d');
+            if (backtestChart) backtestChart.destroy();
+            backtestChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array(details.length).fill(''),
+                    datasets: [
+                        { data: details.map(d => d.actual), borderColor: '#eab308', borderWidth: 1, pointRadius: 0 },
+                        { data: details.map(d => d.upper), borderColor: 'rgba(139, 92, 246, 0.2)', borderWidth: 1, pointRadius: 0 },
+                        { data: details.map(d => d.lower), borderColor: 'rgba(6, 182, 212, 0.2)', borderWidth: 1, pointRadius: 0, fill: '-1', backgroundColor: 'rgba(255,255,255,0.02)' }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { display: false } }, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function updateParams(f) {
+            const r = document.getElementById('regime');
+            r.innerText = f.regime;
+            r.className = `regime-banner regime-${f.regime}`;
+            document.getElementById('p-sigma').innerText = `${(f.sigma * 100).toFixed(3)}%`;
+            document.getElementById('p-df').innerText = f.df.toFixed(2);
+            document.getElementById('p-mu').innerText = `${(f.mu * 100).toFixed(4)}%`;
+            document.getElementById('p-calib').innerText = f.calib.toFixed(3);
+        }
+
+        function updateMetrics(d) {
+            document.getElementById('m-cov').innerText = `${(d.coverage * 100).toFixed(1)}%`;
+            document.getElementById('m-width').innerText = `$${Math.round(d.avg_width)}`;
+            document.getElementById('m-wink').innerText = `$${Math.round(d.winkler)}`;
+        }
+
+        init();
+    </script>
+</body>
+</html>

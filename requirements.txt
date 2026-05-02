@@ -6,3 +6,4 @@ requests
 scipy
 httpx
 nest-asyncio
+fastapi
