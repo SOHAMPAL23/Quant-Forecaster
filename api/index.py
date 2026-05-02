@@ -6,6 +6,10 @@ from typing import Dict, List
 import requests
 from datetime import datetime, timezone
 import asyncio
+import sys
+
+# Ensure the root directory is in sys.path so 'model' can be imported
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import the local model
 from model.data_fetcher import fetch_klines_async, klines_to_arrays, fetch_24h_stats
