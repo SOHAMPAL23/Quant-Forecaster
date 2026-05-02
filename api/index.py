@@ -68,7 +68,8 @@ async def get_forecast():
             "last_close": float(closes[-1])
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Forecast Engine Error: {str(e)}")
+        import traceback
+        raise HTTPException(status_code=500, detail=f"Forecast Engine Error: {str(e)}\n{traceback.format_exc()}")
 
 @app.get("/api/backtest")
 async def get_backtest():
@@ -96,4 +97,5 @@ async def get_history():
         klines = await fetch_klines_async(limit=50)
         return klines
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Data Fetch Error: {str(e)}")
+        import traceback
+        raise HTTPException(status_code=500, detail=f"Data Fetch Error: {str(e)}\n{traceback.format_exc()}")

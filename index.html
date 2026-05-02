@@ -127,28 +127,32 @@
         async function refreshPrice() {
             try {
                 const res = await fetch('/api/price');
+                if (!res.ok) console.error("Price Error:", await res.text());
                 const data = await res.json();
                 document.getElementById('live-price').innerText = `$${data.price.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
-            } catch (e) {}
+            } catch (e) { console.error("refreshPrice caught:", e); }
         }
 
         async function refreshForecast() {
             try {
                 const [hRes, fRes] = await Promise.all([fetch('/api/history'), fetch('/api/forecast')]);
+                if (!hRes.ok) console.error("History Error:", await hRes.text());
+                if (!fRes.ok) console.error("Forecast Error:", await fRes.text());
                 const history = await hRes.json();
                 const forecast = await fRes.json();
                 updatePriceChart(history, forecast);
                 updateParams(forecast);
-            } catch (e) {}
+            } catch (e) { console.error("refreshForecast caught:", e); }
         }
 
         async function refreshBacktest() {
             try {
                 const res = await fetch('/api/backtest');
+                if (!res.ok) console.error("Backtest Error:", await res.text());
                 const data = await res.json();
                 updateBacktestChart(data.details);
                 updateMetrics(data);
-            } catch (e) {}
+            } catch (e) { console.error("refreshBacktest caught:", e); }
         }
 
         function updatePriceChart(history, forecast) {
