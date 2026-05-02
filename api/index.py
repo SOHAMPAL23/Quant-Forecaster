@@ -1,23 +1,19 @@
 from fastapi import FastAPI, HTTPException
 import os
 import numpy as np
-
-from typing import Dict, List
-import requests
-from datetime import datetime, timezone
-import asyncio
 import sys
+from typing import Dict, List
+import asyncio
+from datetime import datetime, timezone
 
-# Ensure the root directory is in sys.path so 'model' can be imported
+# Ensure root is in path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import the local model
+# Import models
 from model.data_fetcher import fetch_klines_async, klines_to_arrays, fetch_24h_stats
 from model.forecaster import BTCForecaster
 
 app = FastAPI()
-
-# Initialize the forecaster
 forecaster = BTCForecaster()
 
 @app.get("/favicon.ico")
@@ -25,77 +21,79 @@ async def favicon():
     from fastapi import Response
     return Response(status_code=204)
 
-@app.get("/api/health")
-async def health():
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc)}
-
 @app.get("/api/price")
 async def get_price():
-    """Fetch live BTC price and 24h stats using async fetcher."""
     try:
-        # Use the async stats fetcher from data_fetcher.py
         stats = await fetch_24h_stats()
         return {
             "price": stats["last_price"],
-            "change_24h": stats["price_change_pct"],
-            "high_24h": stats["high_24h"],
-            "low_24h": stats["low_24h"],
-            "volume_24h": stats["volume_24h"]
+            "price_change_pct": stats["price_change_pct"]
         }
     except Exception as e:
-        # Return structured error for debugging
-        return {"error": "Binance API unreachable", "detail": str(e)}
+        return {"error": str(e)}
 
 @app.get("/api/forecast")
 async def get_forecast():
-    """Run model and return next hour forecast (Async)."""
+    """Aggregated endpoint for the new UI."""
     try:
-        # Direct await to avoid loop-in-loop conflicts on Vercel
-        klines = await fetch_klines_async(limit=900)
+        # Fetch everything in parallel
+        klines_task = fetch_klines_async(limit=900)
+        stats_task = fetch_24h_stats()
+        
+        klines, stats = await asyncio.gather(klines_task, stats_task)
         opens, highs, lows, closes = klines_to_arrays(klines)
         
-        # CPU bound task, but fast enough for serverless
+        # Core forecast
         res = forecaster.predict(closes, highs, lows)
         
+        # Backtest metrics
+        bt = forecaster.backtest(closes, highs, lows, n_test=120, warmup=100)
+        
         return {
-            "lower": res.lower,
-            "upper": res.upper,
-            "mu": res.mu_est,
-            "sigma": res.sigma,
-            "df": res.df,
-            "regime": res.regime,
-            "calib": res.calib,
-            "last_close": float(closes[-1])
+            "live_price": stats["last_price"],
+            "forecast": {
+                "lower": res.lower,
+                "upper": res.upper,
+                "mu": res.mu_est,
+                "sigma": res.sigma,
+                "df": res.df,
+                "regime": res.regime,
+                "calib": res.calib
+            },
+            "backtest": {
+                "coverage": bt.coverage,
+                "avg_width": bt.avg_width,
+                "winkler": bt.winkler,
+                "n_samples": bt.n_samples
+            },
+            "stats_24h": {
+                "price_change_pct": stats["price_change_pct"],
+                "high_24h": stats["high_24h"],
+                "low_24h": stats["low_24h"],
+                "volume_24h": stats["volume_24h"]
+            },
+            "candles": klines[-50:], # Last 50 candles for the chart
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         import traceback
-        raise HTTPException(status_code=500, detail=f"Forecast Engine Error: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"{str(e)}\n{traceback.format_exc()}")
 
-@app.get("/api/backtest")
-async def get_backtest():
-    """Run walk-forward backtest (Async)."""
+@app.get("/api/backtest_details")
+async def get_backtest_details(limit: int = 100):
+    """Detailed backtest history for the lower chart."""
     try:
         klines = await fetch_klines_async(limit=900)
         opens, highs, lows, closes = klines_to_arrays(klines)
-        
-        metrics = forecaster.backtest(closes, highs, lows, n_test=120, warmup=100)
-        
-        return {
-            "coverage": metrics.coverage,
-            "avg_width": metrics.avg_width,
-            "winkler": metrics.winkler,
-            "samples": metrics.n_samples,
-            "details": metrics.details[-50:] 
-        }
+        metrics = forecaster.backtest(closes, highs, lows, n_test=limit, warmup=100)
+        return {"details": metrics.details}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Backtest Engine Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/history")
 async def get_history():
-    """Fetch last 50 candles (Async)."""
     try:
         klines = await fetch_klines_async(limit=50)
         return klines
     except Exception as e:
-        import traceback
-        raise HTTPException(status_code=500, detail=f"Data Fetch Error: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
