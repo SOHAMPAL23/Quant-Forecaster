@@ -43,8 +43,8 @@ The FastAPI backend exposes the following robust endpoints:
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/btc-quant-forecaster.git
-   cd btc-quant-forecaster
+   git clone https://github.com/SOHAMPAL23/Quant-Forecaster.git
+   cd Quant-Forecaster
    ```
 
 2. **Create a virtual environment (recommended)**:
